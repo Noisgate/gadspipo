@@ -1,0 +1,30 @@
+{
+  "name": "adsmcp",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.9.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "predev": "node scripts/check-node-version.mjs",
+    "predev:web": "node scripts/check-node-version.mjs",
+    "predev:worker": "node scripts/check-node-version.mjs",
+    "prebuild": "node scripts/check-node-version.mjs",
+    "pretypecheck": "node scripts/check-node-version.mjs",
+    "dev": "turbo run dev --parallel",
+    "dev:web": "npm run dev --workspace @adsmcp/web",
+    "dev:worker": "npm run dev --workspace @adsmcp/worker",
+    "build": "turbo run build --filter=@adsmcp/web",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "turbo": "latest",
+    "typescript": "latest"
+  },
+  "engines": {
+    "node": ">=22.0.0 <25"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@adsmcp/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@adsmcp/domain": "0.1.0",
+    "@adsmcp/integrations": "0.1.0",
+    "@adsmcp/prompts": "0.1.0"
+  },
+  "devDependencies": {
+    "tsx": "latest"
+  }
+}
