@@ -1,9 +1,18 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { StatusPill, Card, SectionHeading, Button } from "@adsmcp/ui";
 import { readSearchCampaignDraftApproval } from "../../lib/draft-approval-store";
 import { readSavedSearchCampaignDraft } from "../../lib/draft-store";
 import { getSupabaseEnv } from "../../lib/env";
-import { getGoogleAdsConnectionDiagnostic } from "../../lib/google-ads";
+import {
+  getGoogleAdsConnectionDiagnostic,
+  getGoogleAdsLiveConnectionCheck,
+} from "../../lib/google-ads";
+import {
+  buildGoogleAdsOauthRedirectUri,
+  getGoogleAdsOauthEnv,
+  getRequestOrigin,
+} from "../../lib/google-ads-oauth";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { getWorkspaceSnapshot } from "../../lib/workspace";
 import { readWorkspaceDriveIntake } from "../../lib/workspace-store";
@@ -74,6 +83,7 @@ function formatPersistenceTimestamp(value: string | null) {
 
 export default async function DashboardPage() {
   const env = getSupabaseEnv();
+  const requestHeaders = await headers();
   const supabase = await createServerSupabaseClient();
   let userEmail: string | null = null;
   let userId: string | null = null;
@@ -106,6 +116,17 @@ export default async function DashboardPage() {
   const workspace = getWorkspaceSnapshot(userEmail, driveIntakeRecord.intake);
   const googleAdsDiagnostic = getGoogleAdsConnectionDiagnostic(
     workspace.driveIntake.googleAdsCustomerId,
+  );
+  const googleAdsLiveCheck = await getGoogleAdsLiveConnectionCheck(
+    workspace.driveIntake.googleAdsCustomerId,
+  );
+  const googleAdsOauthEnv = getGoogleAdsOauthEnv();
+  const requestOrigin = getRequestOrigin(requestHeaders);
+  const googleAdsRedirectUri = requestOrigin
+    ? buildGoogleAdsOauthRedirectUri(requestOrigin)
+    : null;
+  const hasGoogleAdsRefreshToken = Boolean(
+    process.env.GOOGLE_ADS_REFRESH_TOKEN?.trim(),
   );
   const formattedPersistenceTimestamp = formatPersistenceTimestamp(
     driveIntakeRecord.updatedAt,
@@ -502,6 +523,68 @@ export default async function DashboardPage() {
             <p className="section-eyebrow">Próxima ação</p>
             <p>{googleAdsDiagnostic.nextStep}</p>
           </div>
+          <div className="next-step-box">
+            <p className="section-eyebrow">OAuth do Google Ads</p>
+            <p>
+              {googleAdsOauthEnv.isReady
+                ? "O client OAuth do app ja pode abrir a tela de consentimento do Google Ads para gerar um refresh token local."
+                : "Antes de iniciar o consentimento, preencha GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET no ambiente local do app."}
+            </p>
+            {googleAdsRedirectUri ? (
+              <pre className="prompt-preview">{googleAdsRedirectUri}</pre>
+            ) : null}
+          </div>
+          <div className="next-step-box">
+            <p className="section-eyebrow">Validação real da API</p>
+            <div className="pill-wrap">
+              <StatusPill tone={toneForReadiness(googleAdsLiveCheck.status)}>
+                {googleAdsLiveCheck.status === "ready"
+                  ? "API validada"
+                  : googleAdsLiveCheck.status === "warning"
+                    ? "API com atenção"
+                    : "API pendente"}
+              </StatusPill>
+              {googleAdsLiveCheck.targetCustomer ? (
+                <StatusPill tone="neutral">
+                  Conta alvo validada: {googleAdsLiveCheck.targetCustomer.customerId}
+                </StatusPill>
+              ) : null}
+              {googleAdsLiveCheck.accessibleCustomerIds.length > 0 ? (
+                <StatusPill tone="outline">
+                  {googleAdsLiveCheck.accessibleCustomerIds.length} conta(s) acessível(is)
+                </StatusPill>
+              ) : null}
+            </div>
+            <p>{googleAdsLiveCheck.summary}</p>
+            <p className="support-copy">{googleAdsLiveCheck.detail}</p>
+            {googleAdsLiveCheck.targetCustomer?.descriptiveName ? (
+              <p className="support-copy">
+                Nome da conta: {googleAdsLiveCheck.targetCustomer.descriptiveName}
+                {googleAdsLiveCheck.targetCustomer.currencyCode
+                  ? ` · moeda ${googleAdsLiveCheck.targetCustomer.currencyCode}`
+                  : ""}
+                {googleAdsLiveCheck.targetCustomer.timeZone
+                  ? ` · fuso ${googleAdsLiveCheck.targetCustomer.timeZone}`
+                  : ""}
+              </p>
+            ) : null}
+            {googleAdsLiveCheck.accessibleCustomerIds.length > 0 ? (
+              <div className="pill-wrap">
+                {googleAdsLiveCheck.accessibleCustomerIds
+                  .slice(0, 5)
+                  .map((customerId) => (
+                    <StatusPill key={customerId} tone="outline">
+                      {customerId}
+                    </StatusPill>
+                  ))}
+              </div>
+            ) : null}
+            {googleAdsLiveCheck.requestId ? (
+              <p className="support-copy">
+                request-id da última chamada: {googleAdsLiveCheck.requestId}
+              </p>
+            ) : null}
+          </div>
           <div className="missing-signals">
             <p className="section-eyebrow">Itens faltando</p>
             <div className="pill-wrap">
@@ -521,11 +604,23 @@ export default async function DashboardPage() {
               Arquivo local detectado em {googleAdsDiagnostic.configPath}.
             </p>
           ) : null}
-          <Button disabled variant="secondary">
-            {googleAdsDiagnostic.isConfigured
-              ? "Google Ads pronto para o proximo corte"
-              : "Aguardando credenciais reais"}
-          </Button>
+          {googleAdsDiagnostic.isConfigured ? (
+            <Button disabled variant="secondary">
+              Google Ads pronto para o proximo corte
+            </Button>
+          ) : googleAdsOauthEnv.isReady && !hasGoogleAdsRefreshToken ? (
+            <Button href="/auth/google-ads/start" variant="secondary">
+              Gerar refresh token no Google
+            </Button>
+          ) : googleAdsOauthEnv.isReady ? (
+            <Button disabled variant="secondary">
+              Aguardando developer token aprovado
+            </Button>
+          ) : (
+            <Button disabled variant="secondary">
+              Defina client id e client secret
+            </Button>
+          )}
         </Card>
 
         {workspace.integrations
