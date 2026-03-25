@@ -24,7 +24,30 @@ npm run dev
 - O repositorio agora inclui [.nvmrc](/Users/felipeassinato/Documents/projetos%20codex/adsmcp/.nvmrc) para facilitar isso.
 - Se voce estiver com `Node 25`, o app pode ficar preso na inicializacao sem abrir a porta local do Next.js. Nesse caso, troque para `Node 22`, rode `npm install` novamente e depois `npm run dev:web`.
 
-Se quiser habilitar persistência real do intake, dos drafts e das aprovações por usuário, aplique as migrations em `supabase/migrations/202603220001_create_workspace_campaign_intakes.sql`, `supabase/migrations/202603230001_create_search_campaign_drafts.sql` e `supabase/migrations/202603230002_create_search_campaign_draft_approvals.sql` no seu projeto Supabase. Enquanto isso não acontecer, o app continua funcionando em modo preview com fallback local.
+## Banco de dados
+
+O projeto agora suporta dois caminhos de persistencia:
+
+- `Supabase Auth + Supabase Postgres`
+- `Supabase Auth + PostgreSQL direto` via `DATABASE_URL`
+
+Se `DATABASE_URL` estiver configurada, o app prioriza `PostgreSQL` direto para salvar intake, drafts e aprovacoes. Se nao estiver, ele continua usando o caminho atual do `Supabase client`. Sem banco pronto, o app ainda cai no fallback local por cookie.
+
+### Usando Supabase Postgres
+
+Aplique as migrations em `supabase/migrations/202603220001_create_workspace_campaign_intakes.sql`, `supabase/migrations/202603230001_create_search_campaign_drafts.sql`, `supabase/migrations/202603230002_create_search_campaign_draft_approvals.sql` e `supabase/migrations/202603230004_fix_search_campaign_draft_approvals_objective_check.sql`.
+
+### Usando PostgreSQL direto
+
+1. Defina `DATABASE_URL` no ambiente.
+2. Se o banco exigir conexao sem SSL em ambiente local, defina `POSTGRES_SSL_DISABLED=true`.
+3. Aplique [postgres/migrations/202603230101_create_workspace_tables.sql](/Users/felipeassinato/Workspace/gadspipo/postgres/migrations/202603230101_create_workspace_tables.sql).
+
+Observacao:
+
+- o login continua vindo de `Supabase Auth`
+- a persistencia direta em `PostgreSQL` usa o mesmo `owner_user_id` do usuario autenticado
+- enquanto isso nao estiver configurado, o app continua funcionando em modo preview com fallback local
 
 ## Comandos úteis
 

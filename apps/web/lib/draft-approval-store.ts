@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SearchCampaignDraftPreview } from "@adsmcp/domain";
+import { getPostgresPool } from "./postgres/server";
 
 const SEARCH_DRAFT_APPROVAL_COOKIE_NAME = "adsmcp-search-draft-approval";
 const SEARCH_CAMPAIGN_DRAFT_APPROVALS_TABLE = "search_campaign_draft_approvals";
@@ -168,6 +169,34 @@ export async function readSearchCampaignDraftApproval(
   context: WorkspaceStoreContext = {},
 ): Promise<SearchCampaignDraftApprovalRecord> {
   const cookieApproval = await readDraftApprovalCookie();
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      const result = await postgres.query<SearchCampaignDraftApprovalRow>(
+        `select ${SEARCH_CAMPAIGN_DRAFT_APPROVALS_COLUMNS}
+         from public.${SEARCH_CAMPAIGN_DRAFT_APPROVALS_TABLE}
+         where owner_user_id = $1
+         limit 1`,
+        [context.userId],
+      );
+      const row = result.rows[0];
+
+      if (row) {
+        return buildApprovalRecord({
+          draft: row.draft_payload,
+          sourceFolderId: row.source_folder_id,
+          approvalStatus: row.approval_status,
+          approvalSummary: row.approval_summary,
+          approvedAt: row.approved_at,
+          persistenceMode: "workspace",
+          updatedAt: row.updated_at,
+        });
+      }
+    } catch {
+      // Fall through to the existing Supabase/cookie path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return cookieApproval
@@ -234,6 +263,56 @@ async function persistDraftApproval(
     approvedAt: input.approvedAt,
     updatedAt,
   });
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      const result = await postgres.query<{ updated_at: string }>(
+        `insert into public.${SEARCH_CAMPAIGN_DRAFT_APPROVALS_TABLE} (
+          owner_user_id,
+          campaign_name,
+          objective,
+          source_folder_id,
+          draft_payload,
+          approval_status,
+          approval_summary,
+          approved_at
+        ) values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+        on conflict (owner_user_id) do update
+        set
+          campaign_name = excluded.campaign_name,
+          objective = excluded.objective,
+          source_folder_id = excluded.source_folder_id,
+          draft_payload = excluded.draft_payload,
+          approval_status = excluded.approval_status,
+          approval_summary = excluded.approval_summary,
+          approved_at = excluded.approved_at
+        returning updated_at`,
+        [
+          context.userId,
+          input.draft.campaignName,
+          input.draft.objective,
+          input.sourceFolderId ?? null,
+          JSON.stringify(input.draft),
+          input.approvalStatus,
+          input.approvalSummary,
+          input.approvedAt,
+        ],
+      );
+
+      return buildApprovalRecord({
+        draft: input.draft,
+        sourceFolderId: input.sourceFolderId,
+        approvalStatus: input.approvalStatus,
+        approvalSummary: input.approvalSummary,
+        approvedAt: input.approvedAt,
+        persistenceMode: "workspace",
+        updatedAt: result.rows[0]?.updated_at ?? updatedAt,
+      });
+    } catch {
+      // Fall through to the existing Supabase/cookie path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return buildApprovalRecord({
@@ -356,6 +435,20 @@ export async function clearSearchCampaignDraftApproval(
   context: WorkspaceStoreContext = {},
 ): Promise<void> {
   await clearDraftApprovalCookie();
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      await postgres.query(
+        `delete from public.${SEARCH_CAMPAIGN_DRAFT_APPROVALS_TABLE}
+         where owner_user_id = $1`,
+        [context.userId],
+      );
+      return;
+    } catch {
+      // Fall through to the existing Supabase path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return;

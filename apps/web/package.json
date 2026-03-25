@@ -15,10 +15,12 @@
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
     "next": "latest",
+    "pg": "^8.20.0",
     "react": "latest",
     "react-dom": "latest"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
     "@types/react": "latest",
     "@types/react-dom": "latest"
   }

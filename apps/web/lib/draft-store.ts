@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SearchCampaignDraftPreview } from "@adsmcp/domain";
+import { getPostgresPool } from "./postgres/server";
 
 const SEARCH_DRAFT_COOKIE_NAME = "adsmcp-search-draft";
 const SEARCH_CAMPAIGN_DRAFTS_TABLE = "search_campaign_drafts";
@@ -69,7 +70,7 @@ function buildSavedDraftRecord(input: {
         : "Draft salvo localmente",
     persistenceDetail:
       input.persistenceMode === "workspace"
-        ? "Este snapshot do draft ja esta persistido por usuario no Supabase e pronto para alimentar aprovacao e auditoria."
+        ? "Este snapshot do draft ja esta persistido por usuario no banco do workspace e pronto para alimentar aprovacao e auditoria."
         : "Enquanto a tabela do workspace ainda nao estiver pronta, o snapshot do draft fica salvo em modo preview no proprio app.",
     updatedAt: input.updatedAt,
   };
@@ -113,6 +114,31 @@ export async function readSavedSearchCampaignDraft(
   context: WorkspaceStoreContext = {},
 ): Promise<SavedSearchCampaignDraftRecord> {
   const cookieDraft = await readSearchCampaignDraftCookie();
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      const result = await postgres.query<SearchCampaignDraftRow>(
+        `select ${SEARCH_CAMPAIGN_DRAFTS_COLUMNS}
+         from public.${SEARCH_CAMPAIGN_DRAFTS_TABLE}
+         where owner_user_id = $1
+         limit 1`,
+        [context.userId],
+      );
+      const row = result.rows[0];
+
+      if (row) {
+        return buildSavedDraftRecord({
+          draft: row.draft_payload,
+          sourceFolderId: row.source_folder_id,
+          persistenceMode: "workspace",
+          updatedAt: row.updated_at ?? null,
+        });
+      }
+    } catch {
+      // Fall through to the existing Supabase/cookie path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return cookieDraft
@@ -158,6 +184,44 @@ export async function writeSavedSearchCampaignDraft(
   context: WorkspaceStoreContext = {},
 ): Promise<SavedSearchCampaignDraftRecord> {
   await writeSearchCampaignDraftCookie(input.draft);
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      const result = await postgres.query<{ updated_at: string }>(
+        `insert into public.${SEARCH_CAMPAIGN_DRAFTS_TABLE} (
+          owner_user_id,
+          campaign_name,
+          objective,
+          source_folder_id,
+          draft_payload
+        ) values ($1, $2, $3, $4, $5::jsonb)
+        on conflict (owner_user_id) do update
+        set
+          campaign_name = excluded.campaign_name,
+          objective = excluded.objective,
+          source_folder_id = excluded.source_folder_id,
+          draft_payload = excluded.draft_payload
+        returning updated_at`,
+        [
+          context.userId,
+          input.draft.campaignName,
+          input.draft.objective,
+          input.sourceFolderId ?? null,
+          JSON.stringify(input.draft),
+        ],
+      );
+
+      return buildSavedDraftRecord({
+        draft: input.draft,
+        sourceFolderId: input.sourceFolderId ?? null,
+        persistenceMode: "workspace",
+        updatedAt: result.rows[0]?.updated_at ?? null,
+      });
+    } catch {
+      // Fall through to the existing Supabase/cookie path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return buildSavedDraftRecord({
@@ -205,6 +269,20 @@ export async function clearSavedSearchCampaignDraft(
   context: WorkspaceStoreContext = {},
 ): Promise<void> {
   await clearSearchCampaignDraftCookie();
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      await postgres.query(
+        `delete from public.${SEARCH_CAMPAIGN_DRAFTS_TABLE}
+         where owner_user_id = $1`,
+        [context.userId],
+      );
+      return;
+    } catch {
+      // Fall through to the existing Supabase path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return;

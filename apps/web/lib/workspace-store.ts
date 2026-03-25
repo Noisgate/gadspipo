@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WorkspaceDriveIntake } from "@adsmcp/domain";
+import { getPostgresPool } from "./postgres/server";
 import { buildWorkspaceDriveIntake } from "./workspace";
 
 const WORKSPACE_COOKIE_NAME = "adsmcp-workspace-intake";
@@ -66,7 +67,7 @@ function buildWorkspaceRecord(
     persistenceMode: "workspace",
     persistenceLabel: "Contexto salvo no workspace",
     persistenceDetail:
-      "O intake ja esta persistido por usuario no Supabase e pronto para acompanhar a evolucao real do workspace.",
+      "O intake ja esta persistido por usuario no banco do workspace e pronto para acompanhar a evolucao real do produto.",
     updatedAt,
   };
 }
@@ -140,6 +141,28 @@ export async function readWorkspaceDriveIntake(
   context: WorkspaceStoreContext = {},
 ): Promise<WorkspaceDriveIntakeRecord> {
   const cookieIntake = await readWorkspaceDriveIntakeCookie();
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      const result = await postgres.query<WorkspaceCampaignIntakeRow>(
+        `select ${WORKSPACE_CAMPAIGN_INTAKES_COLUMNS}
+         from public.${WORKSPACE_CAMPAIGN_INTAKES_TABLE}
+         where owner_user_id = $1
+         limit 1`,
+        [context.userId],
+      );
+
+      if (result.rows[0]) {
+        return buildWorkspaceRecord(
+          mapRowToDriveIntake(result.rows[0]),
+          result.rows[0].updated_at ?? null,
+        );
+      }
+    } catch {
+      // Fall through to the existing Supabase/cookie path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return buildPreviewRecord(cookieIntake);
@@ -163,6 +186,49 @@ export async function writeWorkspaceDriveIntake(
   context: WorkspaceStoreContext = {},
 ): Promise<WorkspaceDriveIntakeRecord> {
   await writeWorkspaceDriveIntakeCookie(value);
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      const row = mapDriveIntakeToRow(context.userId, value);
+      const result = await postgres.query<{ updated_at: string }>(
+        `insert into public.${WORKSPACE_CAMPAIGN_INTAKES_TABLE} (
+          owner_user_id,
+          google_ads_customer_id,
+          drive_folder_input,
+          drive_folder_id,
+          objective,
+          offer_summary,
+          landing_page_url,
+          notes
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8)
+        on conflict (owner_user_id) do update
+        set
+          google_ads_customer_id = excluded.google_ads_customer_id,
+          drive_folder_input = excluded.drive_folder_input,
+          drive_folder_id = excluded.drive_folder_id,
+          objective = excluded.objective,
+          offer_summary = excluded.offer_summary,
+          landing_page_url = excluded.landing_page_url,
+          notes = excluded.notes
+        returning updated_at`,
+        [
+          row.owner_user_id,
+          row.google_ads_customer_id,
+          row.drive_folder_input,
+          row.drive_folder_id,
+          row.objective,
+          row.offer_summary,
+          row.landing_page_url,
+          row.notes,
+        ],
+      );
+
+      return buildWorkspaceRecord(value, result.rows[0]?.updated_at ?? null);
+    } catch {
+      // Fall through to the existing Supabase/cookie path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return buildPreviewRecord(value);
@@ -187,6 +253,20 @@ export async function clearWorkspaceDriveIntake(
   context: WorkspaceStoreContext = {},
 ): Promise<void> {
   await clearWorkspaceDriveIntakeCookie();
+  const postgres = getPostgresPool();
+
+  if (postgres && context.userId) {
+    try {
+      await postgres.query(
+        `delete from public.${WORKSPACE_CAMPAIGN_INTAKES_TABLE}
+         where owner_user_id = $1`,
+        [context.userId],
+      );
+      return;
+    } catch {
+      // Fall through to the existing Supabase path if direct Postgres is unavailable.
+    }
+  }
 
   if (!context.supabase || !context.userId) {
     return;
