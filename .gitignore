@@ -9,3 +9,17 @@ coverage
 .env.production
 .env.development
 npm-debug.log*
+
+# Google Ads credentials
+google-ads.yaml
+*.yaml.credentials
+skills/google-ads-manager/.env
+skills/google_ads_mcp/.env
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+*.eggs/
+venv/
+.venv/
