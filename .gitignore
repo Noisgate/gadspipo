@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# FastAPI / credentials
+.env
+.env.local
+.env.*.local
+google-ads.yaml
+backend/google-ads.yaml
+
+# Node
+node_modules/
+.next/
+out/
+build/
+dist/
+.vercel
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+
+# Logs
+*.log
+logs/
+
+# Temp
+.tmp/
+temp/
+
+# Local support repos / generated handoff assets
+.aiox-core/
+aios-core/
+xquads-squads/
+gadspipo/
+.env.production
+frontend/tsconfig.tsbuildinfo
